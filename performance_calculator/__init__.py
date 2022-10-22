@@ -20,10 +20,12 @@ from performance_calculator.rulesets.taiko.performance import TaikoPerformanceCa
 __name__ = "performance_calculator"
 __author__ = "tsunyoku"
 __version__ = "0.1.0"
-__all__ = ("calculate_performance",)
+__all__ = ("calculate_score",)
 
 
-def _calculate_oppai(score: Score, oppai_path: str, osu_file_path: str) -> float:
+def _calculate_oppai(
+    score: Score, oppai_path: str, osu_file_path: str
+) -> tuple[float, float]:
     path = Path(oppai_path)
     if not path.exists():
         raise FileNotFoundError(f"oppai path {oppai_path} does not exist")
@@ -39,12 +41,17 @@ def _calculate_oppai(score: Score, oppai_path: str, osu_file_path: str) -> float
         ezpp.calculate(Path(osu_file_path))
 
         pp = ezpp.get_pp()
-        if math.isinf(pp) or math.isinf(pp):
-            return 0.0
+        sr = ezpp.get_sr()
 
-        return pp
+        if math.isnan(sr) or math.isinf(sr):
+            return 0.0, 0.0
 
-    return 0.0
+        if math.isnan(pp) or math.isinf(pp):
+            return 0.0, 0.0
+
+        return sr, pp
+
+    return 0.0, 0.0
 
 
 def _calculate_std(
@@ -52,7 +59,7 @@ def _calculate_std(
     attributes: Optional[OsuDifficultyAttributes] = None,
     oppai_path: Optional[str] = None,
     osu_file_path: Optional[str] = None,
-) -> float:
+) -> tuple[float, float]:
     # use lazer pp if not rx/ap
     if not score.mods & Mods.RELAX and not score.mods & Mods.AUTOPILOT:
         if attributes is None:
@@ -61,6 +68,8 @@ def _calculate_std(
         calculator = OsuPerformanceCalculator(attributes)
         calculator_result = calculator.calculate(score)
         result = calculator_result.total
+
+        star_rating = attributes.star_rating
     else:
         if osu_file_path is None:
             raise ValueError("You must provide a .osu file path")
@@ -68,9 +77,9 @@ def _calculate_std(
         if oppai_path is None:
             raise ValueError("You must provide an oppai path")
 
-        result = _calculate_oppai(score, oppai_path, osu_file_path)
+        star_rating, result = _calculate_oppai(score, oppai_path, osu_file_path)
 
-    return result
+    return star_rating, result
 
 
 def _calculate_taiko(
@@ -106,12 +115,12 @@ def _calculate_mania(
     return result
 
 
-def calculate_performance(
+def calculate_score(
     score: Score,
     attributes: Optional[DifficultyAttributes] = None,  # doesn't exist if oppai is used
     oppai_path: Optional[str] = None,  # doesn't exist unless oppai is used
     osu_file_path: Optional[str] = None,  # doesn't exist unless oppai is used
-) -> float:
+) -> tuple[float, float]:
     if score.mode == 0:
         if attributes is not None and not isinstance(
             attributes,
@@ -119,7 +128,7 @@ def calculate_performance(
         ):
             raise ValueError("attributes must be OsuDifficultyAttributes")
 
-        result = _calculate_std(
+        result, star_rating = _calculate_std(
             score,
             attributes,
             oppai_path,
@@ -133,6 +142,8 @@ def calculate_performance(
             score,
             attributes,
         )
+
+        star_rating = attributes.star_rating
     elif score.mode == 2:
         if attributes is None or not isinstance(attributes, CatchDifficultyAttributes):
             raise ValueError("you must provide difficulty attributes")
@@ -141,6 +152,8 @@ def calculate_performance(
             score,
             attributes,
         )
+
+        star_rating = attributes.star_rating
     elif score.mode == 3:
         if attributes is None or not isinstance(attributes, ManiaDifficultyAttributes):
             raise ValueError("you must provide difficulty attributes")
@@ -149,9 +162,11 @@ def calculate_performance(
             score,
             attributes,
         )
+
+        star_rating = attributes.star_rating
     else:
         raise NotImplementedError(
             f"no performance calculator found for mode {score.mode}",
         )
 
-    return result
+    return star_rating, result
